@@ -33,31 +33,36 @@ window.addEventListener("error", (e) => onUncaughtIssue("uncaught error", e.erro
 window.addEventListener("unhandledrejection", (e) => onUncaughtIssue("unhandled rejection", e.reason));
 
 // ---------------------------------------------------------------------------
-// Device preference: "wasm" (default, CPU via WebAssembly) or "webgpu"
-// (experimental, faster). Transformers.js for the web accepts ONLY "wasm" and
-// "webgpu" — "cpu" is a Node-only value that the library rejects, so any stale
-// "cpu" value (left by an older build) is normalized away here.
+// Device preference: "webgpu" (default, GPU, faster) or "wasm" (CPU).
+// Transformers.js for the web accepts ONLY "wasm" and "webgpu" — "cpu" is a
+// Node-only value that the library rejects, so any stale "cpu" value (left by
+// an older build) is normalized away here.
 // ---------------------------------------------------------------------------
 const DEVICE_KEY = "in-browser-ai.device";
 
+// WebGPU is the new default whenever the browser supports it. Only an explicit
+// "wasm" choice (unchecking the toggle) is preserved across reloads.
+const WEBGPU_SUPPORTED = typeof navigator !== "undefined" && "gpu" in navigator;
+const DEFAULT_DEVICE = WEBGPU_SUPPORTED ? "webgpu" : "wasm";
+
 function normalizeDevice(value) {
-  return value === "webgpu" ? "webgpu" : "wasm";
+  return value === "wasm" ? "wasm" : DEFAULT_DEVICE;
 }
 
-// Remove stale values an old app may have left behind, so a broken "cpu" can
-// never leak into the library and produce "Unsupported device: 'cpu'".
+// Remove stale entries (e.g. "cpu" from very old builds) so a broken value can
+// never reach the library and produce "Unsupported device: 'cpu'".
 try {
   const stored = localStorage.getItem(DEVICE_KEY);
   if (stored !== null && stored !== "webgpu" && stored !== "wasm") {
-    console.warn(`[in-browser-ai] Removing stale device value "${stored}" from localStorage.`);
-    localStorage.setItem(DEVICE_KEY, "wasm");
+    console.warn(`[in-browser-ai] Replacing stale device value "${stored}" with "${DEFAULT_DEVICE}".`);
+    localStorage.setItem(DEVICE_KEY, DEFAULT_DEVICE);
   }
 } catch {
   /* storage not available (file://, privacy mode) — fall through to defaults */
 }
 
-// The user's device preference. Persisted across reloads.
-let device = "wasm";
+// The user's device preference. Persisted across reloads (defaults to WebGPU).
+let device = DEFAULT_DEVICE;
 try {
   device = normalizeDevice(localStorage.getItem(DEVICE_KEY));
 } catch {
@@ -300,13 +305,17 @@ async function getTranscriber() {
   const cfg = MODELS.speech[key];
   if (transcriber && transcriberId === key) return transcriber;
   setStatus(els.speechStatus, `Loading Whisper ${key} (${cfg.size})…`, "loading");
-  const opts = getPipelineOptions("automatic-speech-recognition");
+  // Whisper always runs on the CPU (WASM) backend: ORT's WebGPU backend is
+  // unreliable for Whisper on many GPUs and can throw
+  // "e.subarray is not a function" mid-decode. The WebGPU toggle still
+  // accelerates the text models (summarization / translation).
+  const opts = { device: "wasm", dtype: "q8" };
   opts.progress_callback = onModelProgress("speech");
   transcriber = await loadPipeline("automatic-speech-recognition", cfg.id, opts, els.speechStatus);
   transcriberId = key;
   setStatus(
     els.speechStatus,
-    `Whisper ${key} ready — recording & transcribing stays on-device.`,
+    `Whisper ${key} ready (CPU backend for reliability) — recording & transcribing stays on-device.`,
     "ready"
   );
   return transcriber;
@@ -563,8 +572,8 @@ els.webgpuToggle.addEventListener("change", () => {
   summarizer = null; summarizerId = null;
   translator = null; translatorId = null;
   const note = device === "webgpu"
-    ? "WebGPU enabled — models will try to run on your graphics card (falls back to CPU if unsupported)."
-    : "WebGPU disabled — models will run on your CPU.";
+    ? "WebGPU enabled — summarization & translation run on your graphics card (Whisper stays on CPU for reliability; it falls back to CPU if needed)."
+    : "WebGPU disabled — all models run on your CPU.";
   setStatus(els.speechStatus, note, "idle");
   setStatus(els.summaryStatus, note, "idle");
   setStatus(els.translateStatus, note, "idle");
