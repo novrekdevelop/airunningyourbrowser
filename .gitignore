@@ -1,0 +1,25 @@
+# Dependencies (the app is dependency-free at runtime; keep local installs out)
+node_modules/
+*.log
+npm-debug.log*
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Build artifacts (icons are committed; regenerate only if you change the script)
+scripts/__pycache__/
+
+# Local model downloads (never commit multi-MB weights)
+models/
+
+# Local dev-tool artifact
+.qodo/

@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Running in Your Browser — Free, private Whisper + summarization + translation</title>
+
+  <!-- ===================== SEO ===================== -->
+  <meta name="description" content="OpenAI Whisper speech-to-text, text summarization and translation that run 100% in your browser via WebAssembly (Transformers.js + ONNX Runtime Web). No backend, no API keys, nothing ever leaves your device." />
+  <meta name="keywords" content="whisper, speech to text, summarization, translation, webassembly, on-device, private, offline, transformers.js, onnx" />
+  <meta name="author" content="danie" />
+  <meta name="robots" content="index, follow" />
+  <meta name="color-scheme" content="dark" />
+
+  <!-- ===================== Open Graph / Twitter =====================
+       Update these two URLs to your live site after deploying.
+       The default assumes a GitHub Pages deploy from this repo. -->
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="AI Running in Your Browser" />
+  <meta property="og:description" content="Whisper speech-to-text, summarization & translation that run 100% on your device. Free, private, no API keys — and it works offline." />
+  <meta property="og:image" content="https://YOUR-USERNAME.github.io/in-browser-ai/icons/social-card.png" />
+  <meta property="og:url" content="https://YOUR-USERNAME.github.io/in-browser-ai/" />
+  <meta property="og:locale" content="en_US" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="AI Running in Your Browser" />
+  <meta name="twitter:description" content="Whisper speech-to-text, summarization & translation — 100% on-device via WebAssembly. Free, private, no API keys." />
+  <meta name="twitter:image" content="https://YOUR-USERNAME.github.io/in-browser-ai/icons/social-card.png" />
+
+  <!-- ===================== PWA ===================== -->
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="theme-color" content="#0f1117" />
+  <link rel="icon" href="icons/icon-192.png" type="image/png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+
+  <link rel="stylesheet" href="styles.css" />
+  <noscript><p class="status error">This app needs JavaScript to load the AI models.</p></noscript>
+</head>
+<body>
+  <main class="app">
+    <header class="hero">
+      <p class="eyebrow">Zero backend · Zero API keys · 100% on-device</p>
+      <h1>AI running in <span class="accent">your browser</span></h1>
+      <p class="sub">
+        OpenAI Whisper (speech&nbsp;→&nbsp;text), T5/BART (summarization) and
+        OPUS-MT (translation) are compiled to <strong>WebAssembly</strong> and executed
+        <em>on your device</em> with ONNX Runtime Web.
+        Nothing you type, say, or upload ever leaves this tab.
+      </p>
+      <ul class="badges">
+        <li>🔒 Private — data never leaves the device</li>
+        <li>💰 Free — no servers, no tokens</li>
+        <li>⚡ One-click — loads once, works offline</li>
+        <li>📱 Installable — a real app from your browser</li>
+      </ul>
+      <label class="checkbox center">
+        <input type="checkbox" id="webgpuToggle" /> ⚡ WebGPU — run on your graphics card (faster, experimental)
+      </label>
+    </header>
+
+    <nav class="tabs" role="tablist">
+      <button class="tab-btn active" data-tab="speech" role="tab" aria-selected="true">🎤 Speech → Text</button>
+      <button class="tab-btn" data-tab="summary" role="tab" aria-selected="false">📝 Text → Summary</button>
+      <button class="tab-btn" data-tab="translate" role="tab" aria-selected="false">🌐 Text → Translate</button>
+    </nav>
+<!-- ============================= SPEECH ============================= -->
+    <section class="panel" id="panel-speech" role="tabpanel">
+      <div class="card">
+        <div class="card-head">
+          <h2>Whisper — speech to text</h2>
+          <label class="select-wrap">
+            Model
+            <select id="speechModelSelect">
+              <option value="whisper-tiny-en">whisper-tiny.en — fastest (~40 MB, English only)</option>
+              <option value="whisper-base">whisper-base — multilingual (~145 MB)</option>
+              <option value="whisper-small">whisper-small — multilingual, best accuracy (~466 MB)</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="controls">
+          <button id="recordBtn" class="btn primary">🎤 Start recording</button>
+          <span id="recordTime" class="record-time" hidden>0:00</span>
+          <label class="btn ghost" for="fileInput">📂 Upload audio file…</label>
+          <input type="file" id="fileInput" accept="audio/*" hidden />
+          <label class="checkbox">
+            <input type="checkbox" id="timestampsToggle" checked /> Show timestamps
+          </label>
+        </div>
+
+        <div id="speechProgress" class="progress hidden">
+          <div class="progress-bar"><div id="speechProgressFill" class="progress-fill"></div></div>
+          <span id="speechProgressText" class="progress-text">…</span>
+        </div>
+        <p id="speechStatus" class="status idle">Audio is processed on-device. Click “record” or choose a file to begin. Multilingual models auto-detect the language.</p>
+
+        <label class="field-label" for="transcript">Transcript</label>
+        <textarea id="transcript" class="output" rows="7" placeholder="Your transcription will appear here…" readonly></textarea>
+
+        <div class="card-actions">
+          <button id="copySpeech" class="btn ghost small">📋 Copy</button>
+          <button id="clearSpeech" class="btn ghost small">🗑 Clear</button>
+        </div>
+      </div>
+    </section>
+<!-- ============================= SUMMARY ============================= -->
+    <section class="panel hidden" id="panel-summary" role="tabpanel">
+      <div class="card">
+        <div class="card-head">
+          <h2>Summarizer — long text → short</h2>
+          <label class="select-wrap">
+            Model
+            <select id="summaryModelSelect">
+              <option value="t5">Xenova/t5-small (~75 MB) — fast</option>
+              <option value="distilbart">Xenova/distilbart-cnn-6-6 (~260 MB) — higher quality</option>
+            </select>
+          </label>
+        </div>
+
+        <div id="summaryProgress" class="progress hidden">
+          <div class="progress-bar"><div id="summaryProgressFill" class="progress-fill"></div></div>
+          <span id="summaryProgressText" class="progress-text">…</span>
+        </div>
+        <p id="summaryStatus" class="status idle">Summarization runs on-device. Paste an article below, or load the example.</p>
+
+        <label class="field-label" for="inputText">Input text</label>
+        <textarea id="inputText" class="output" rows="8" placeholder="Paste an article, report, or any long text here…"></textarea>
+
+        <div class="card-actions">
+          <button id="loadExample" class="btn ghost small">✨ Load example article</button>
+          <label class="checkbox inline-opt">
+            Summary length
+            <input type="range" id="maxLen" min="30" max="200" value="120" />
+            <span id="maxLenLabel">120 words</span>
+          </label>
+          <button id="summarizeBtn" class="btn primary small">✨ Summarize</button>
+        </div>
+
+        <div id="summaryProgressInline" class="progress hidden">
+          <div class="progress-bar"><div id="summaryProgressInlineFill" class="progress-fill"></div></div>
+        </div>
+
+        <label class="field-label" for="summaryOut">Summary</label>
+        <textarea id="summaryOut" class="output" rows="8" placeholder="Your summary will appear here…" readonly></textarea>
+
+        <div class="card-actions">
+          <button id="copySummary" class="btn ghost small">📋 Copy</button>
+        </div>
+      </div>
+    </section>
+<!-- ============================= TRANSLATE ============================= -->
+    <section class="panel hidden" id="panel-translate" role="tabpanel">
+      <div class="card">
+        <div class="card-head">
+          <h2>Translator — text → any language</h2>
+          <span class="model-tag">Helsinki-NLP OPUS-MT · ~300 MB</span>
+        </div>
+
+        <div id="translateProgress" class="progress hidden">
+          <div class="progress-bar"><div id="translateProgressFill" class="progress-fill"></div></div>
+          <span id="translateProgressText" class="progress-text">…</span>
+        </div>
+        <p id="translateStatus" class="status idle">Translation runs on-device. Choose a language pair, paste text, hit Translate.</p>
+
+        <div class="controls">
+          <label class="select-wrap">
+            From
+            <select id="srcLang">
+              <option value="en">English</option>
+              <option value="es">Spanish</option>
+              <option value="fr">French</option>
+              <option value="de">German</option>
+              <option value="it">Italian</option>
+            </select>
+          </label>
+          <span class="arrow">→</span>
+          <label class="select-wrap">
+            To
+            <select id="tgtLang">
+              <option value="es">Spanish</option>
+              <option value="en">English</option>
+              <option value="fr">French</option>
+              <option value="de">German</option>
+              <option value="it">Italian</option>
+            </select>
+          </label>
+          <button id="swapLang" class="btn ghost small" title="Swap languages">⇄ Swap</button>
+        </div>
+
+        <label class="field-label" for="translateInput">Input text</label>
+        <textarea id="translateInput" class="output" rows="6" placeholder="Type or paste text to translate…"></textarea>
+
+        <div class="card-actions">
+          <button id="loadTranslateExample" class="btn ghost small">✨ Load example</button>
+          <button id="translateBtn" class="btn primary small">🌐 Translate</button>
+        </div>
+
+        <label class="field-label" for="translateOut">Translation</label>
+        <textarea id="translateOut" class="output" rows="6" placeholder="Your translation will appear here…" readonly></textarea>
+
+        <div class="card-actions">
+          <button id="copyTranslate" class="btn ghost small">📋 Copy</button>
+        </div>
+      </div>
+    </section>
+
+    <footer class="foot">
+      <p>
+        How it works: 🤗 <a href="https://huggingface.co/docs/transformers.js" target="_blank" rel="noopener">Transformers.js</a>
+        downloads each ONNX model once (cached by the browser), then ONNX Runtime Web runs it as
+        WebAssembly on your CPU. After the first load, it works fully offline — free, private, and frictionless.
+      </p>
+    </footer>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
