@@ -86,12 +86,26 @@ browser ──┬── service worker   (app shell cached → works offline)
 
 ## 🚀 Run it locally
 
-> Any static file server works — no build step, zero runtime dependencies.
+> Any static file server works — no build step, zero runtime dependencies. Python is
+> recommended (and included in the launchers).
+
+### 🖱️ The easy way — double-click
+
+| Your OS | Do this |
+|---|---|
+| **Windows** | Double-click **`start.bat`** |
+| **macOS / Linux** | Double-click **`start.sh`** (or run `./start.sh` in a terminal) |
+
+The launcher picks a free port, starts the server and opens the app in your
+default browser automatically. Close the window (Windows) or press `Ctrl+C`
+(macOS/Linux) to stop.
+
+### ⌨️ The manual way
 
 ```bash
-# Option 1 — Python (recommended, no dependencies)
-python server.py                      # → http://127.0.0.1:8000
-python server.py --port 9000 --no-browser
+# Option 1 — Python (no dependencies)
+python start.py                      # → http://127.0.0.1:8000
+python server.py --port 9000         # the classic server, same thing
 
 # Option 2 — Node (any static server)
 npx serve .
@@ -104,8 +118,10 @@ Open **http://127.0.0.1:8000**, click the microphone 🎤 and talk — or open t
 > - Internet is needed **only** for the first per-model download; afterward models run
 >   offline from the browser cache.
 > - The microphone requires a **secure context** (`https://` or `http://localhost`).
->   The bundled `server.py` provides it; on any other host, file-upload
+>   The bundled `start.py`/`server.py` provide it; on any other host, file-upload
 >   transcription still works everywhere.
+> - **No Python?** Any static server works: `npx serve .` (Node), or the built-in
+>   servers of VS Code / JetBrains IDEs.
 
 ---
 
@@ -175,6 +191,9 @@ This is a **zero-telemetry** app:
 
 | File | Purpose |
 |---|---|
+| `start.bat` | **Windows** double-click launcher |
+| `start.sh` | **macOS / Linux** double-click launcher |
+| `start.py` | Cross-platform launcher that both scripts call (auto-opens browser) |
 | `index.html` | UI (tabs, controls, outputs, SEO + PWA meta) |
 | `styles.css` | Styling |
 | `app.js` | All inference logic: pipelines, progress, mic/upload, summarization, translation |
