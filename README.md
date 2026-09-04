@@ -6,8 +6,8 @@
 
 Zero backend · Zero API keys · Nothing ever leaves your device
 
-[**🚀 Live demo**](https://YOUR-USERNAME.github.io/in-browser-ai/) · [**Install as a PWA**](#-install-as-an-app)
-· [**Report a bug**](https://github.com/YOUR-USERNAME/in-browser-ai/issues)
+[**🚀 Live demo**](https://novrekdevelop.github.io/airunningyourbrowser/) · [**Install as a PWA**](#-install-as-an-app)
+· [**Report a bug**](https://github.com/novrekdevelop/airunningyourbrowser/issues)
 
 ![Badge: License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Badge: Built with](https://img.shields.io/badge/built%20with-Transformers.js%20%2B%20ONNX%20Runtime%20Web-6366f1)
@@ -143,9 +143,8 @@ Pages automatically on every push:
 1. Push this repo to GitHub (branch `main`).
 2. **Settings → Pages** → Source: **GitHub Actions**.
 3. Push a new commit — the site goes live.
-4. Finally, replace the placeholder `YOUR-USERNAME` in the **Open Graph** meta
-   tags in `index.html` with your real URL so shared links render a pretty card
-   on X / LinkedIn / WhatsApp.
+4. The **Open Graph** meta tags in `index.html` already point to this live site,
+   so shared links render a pretty card on X / LinkedIn / WhatsApp.
 
 ## 🔒 Privacy & data
 

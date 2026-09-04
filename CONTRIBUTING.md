@@ -21,8 +21,8 @@ aims to be approachable for newcomers, so keep discussions friendly and inclusiv
 
 1. Clone the repo:
    ```bash
-   git clone https://github.com/<YOUR-USERNAME>/in-browser-ai.git
-   cd in-browser-ai
+   git clone https://github.com/novrekdevelop/airunningyourbrowser.git
+   cd airunningyourbrowser
    ```
 2. Run the local server:
    ```bash
