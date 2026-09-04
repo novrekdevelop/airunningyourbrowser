@@ -127,12 +127,12 @@ async function runWithFallback(statusEl, fn) {
 const MODELS = {
   // automatic-speech-recognition (Whisper) — pick speed vs language support
   speech: {
-    // English-only, tiny (~40 MB q8) — fastest
-    "whisper-tiny-en": { id: "Xenova/whisper-tiny.en", size: "~40 MB", enOnly: true },
-    // Multilingual base (~145 MB) — good balance
-    "whisper-base": { id: "Xenova/whisper-base", size: "~145 MB", enOnly: false },
-    // Multilingual small (~466 MB) — best accuracy, slower
-    "whisper-small": { id: "Xenova/whisper-small", size: "~466 MB", enOnly: false },
+    // English-only, tiny (unquantized fp32 ~253 MB) — fastest
+    "whisper-tiny-en": { id: "Xenova/whisper-tiny.en", size: "~253 MB", enOnly: true },
+    // Multilingual base (fp32 ~464 MB) — good balance
+    "whisper-base": { id: "Xenova/whisper-base", size: "~464 MB", enOnly: false },
+    // Multilingual small (fp32 ~1.4 GB) — best accuracy, slower
+    "whisper-small": { id: "Xenova/whisper-small", size: "~1.4 GB", enOnly: false },
   },
   // summarization — fast default, ~75 MB q8
   t5: {
@@ -306,10 +306,12 @@ async function getTranscriber() {
   if (transcriber && transcriberId === key) return transcriber;
   setStatus(els.speechStatus, `Loading Whisper ${key} (${cfg.size})…`, "loading");
   // Whisper always runs on the CPU (WASM) backend: ORT's WebGPU backend is
-  // unreliable for Whisper on many GPUs and can throw
-  // "e.subarray is not a function" mid-decode. The WebGPU toggle still
-  // accelerates the text models (summarization / translation).
-  const opts = { device: "wasm", dtype: "q8" };
+  // unreliable for Whisper on many GPUs ("e.subarray is not a function" at
+  // decode time) and the q8-quantized Whisper decoders cannot create a session
+  // on the v4 runtime ("Missing required scale … MatMulNBits" — see
+  // huggingface/transformers.js#1707). Using the unquantized fp32 model avoids
+  // both problems. The WebGPU toggle still accelerates the text models.
+  const opts = { device: "wasm", dtype: "fp32" };
   opts.progress_callback = onModelProgress("speech");
   transcriber = await loadPipeline("automatic-speech-recognition", cfg.id, opts, els.speechStatus);
   transcriberId = key;
