@@ -11,7 +11,7 @@
  * fetched from the Hugging Face CDN at runtime and cached separately by the
  * browser itself, so upstream requests from other origins are left alone.
  */
-const CACHE = "in-browser-ai-v3";
+const CACHE = "in-browser-ai-v4";
 const APP_SHELL = [
   "./",
   "./index.html",
