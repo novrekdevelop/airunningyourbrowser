@@ -37,6 +37,9 @@ Transformers.js from a CDN at runtime.
 
 | File | Purpose |
 |---|---|
+| `start.bat` | Windows double-click launcher |
+| `start.sh` | macOS / Linux double-click launcher |
+| `start.py` | Cross-platform launcher (free-port detection + auto-open browser) |
 | `index.html` | UI: tabs, controls, outputs, SEO/PWA meta |
 | `styles.css` | Styling |
 | `app.js` | All inference logic (pipelines, mic, upload, progress) |
