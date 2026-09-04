@@ -127,9 +127,12 @@ async function runWithFallback(statusEl, fn) {
 const MODELS = {
   // automatic-speech-recognition (Whisper) — pick speed vs language support
   speech: {
-    // English-only, tiny (unquantized fp32 ~253 MB) — fastest
+    // Multilingual tiny (fp32 ~253 MB) — fastest; auto-detects the spoken
+    // language, so it transcribes in whatever you speak (e.g. Spanish, English)
+    "whisper-tiny": { id: "Xenova/whisper-tiny", size: "~253 MB", enOnly: false },
+    // English-only tiny (fp32 ~253 MB) — transcribes only English
     "whisper-tiny-en": { id: "Xenova/whisper-tiny.en", size: "~253 MB", enOnly: true },
-    // Multilingual base (fp32 ~464 MB) — good balance
+    // Multilingual base (fp32 ~464 MB) — better accuracy
     "whisper-base": { id: "Xenova/whisper-base", size: "~464 MB", enOnly: false },
     // Multilingual small (fp32 ~1.4 GB) — best accuracy, slower
     "whisper-small": { id: "Xenova/whisper-small", size: "~1.4 GB", enOnly: false },
