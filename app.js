@@ -34,16 +34,42 @@ window.addEventListener("unhandledrejection", (e) => onUncaughtIssue("unhandled 
 
 // ---------------------------------------------------------------------------
 // Device preference: "wasm" (default, CPU via WebAssembly) or "webgpu"
-// (experimental, faster). Transformers.js accepts "wasm" / "webgpu" on the web
-// ("cpu" is only valid on Node). Persisted so the choice survives reloads
-// (any stale "cpu" value is normalized to "wasm").
+// (experimental, faster). Transformers.js for the web accepts ONLY "wasm" and
+// "webgpu" — "cpu" is a Node-only value that the library rejects, so any stale
+// "cpu" value (left by an older build) is normalized away here.
 // ---------------------------------------------------------------------------
 const DEVICE_KEY = "in-browser-ai.device";
-let device = localStorage.getItem(DEVICE_KEY) === "webgpu" ? "webgpu" : "wasm";
 
-function getPipelineOptions(task = null) {
+function normalizeDevice(value) {
+  return value === "webgpu" ? "webgpu" : "wasm";
+}
+
+// Remove stale values an old app may have left behind, so a broken "cpu" can
+// never leak into the library and produce "Unsupported device: 'cpu'".
+try {
+  const stored = localStorage.getItem(DEVICE_KEY);
+  if (stored !== null && stored !== "webgpu" && stored !== "wasm") {
+    console.warn(`[in-browser-ai] Removing stale device value "${stored}" from localStorage.`);
+    localStorage.setItem(DEVICE_KEY, "wasm");
+  }
+} catch {
+  /* storage not available (file://, privacy mode) — fall through to defaults */
+}
+
+// The user's device preference. Persisted across reloads.
+let device = "wasm";
+try {
+  device = normalizeDevice(localStorage.getItem(DEVICE_KEY));
+} catch {
+  /* storage unavailable — keep the default */
+}
+// The device actually in use right now. A WebGPU load/runtime failure drops
+// this to "wasm" without changing the user's preference stored in `device`.
+let activeDevice = device;
+
+function getPipelineOptions() {
   // Shared extra options handed to every pipeline.
-  const opts = { device };
+  const opts = { device: activeDevice };
   // q8 (8-bit quantized) keeps models small; it resolves to the "*_quantized.onnx"
   // files and runs on both wasm (CPU) and webgpu. This is the v4 way to set it
   // (the v3 "quantized: true" flag is no longer an option in Transformers.js v4).
@@ -59,9 +85,32 @@ async function loadPipeline(task, modelId, opts, statusEl) {
   } catch (err) {
     if (opts.device === "webgpu") {
       console.warn("[in-browser-ai] WebGPU init failed — falling back to WASM:", err);
+      activeDevice = "wasm";
       opts.device = "wasm";
       if (statusEl) setStatus(statusEl, "WebGPU unavailable for this model — running on CPU instead. ⚠", "loading");
       return await pipeline(task, modelId, opts);
+    }
+    throw err;
+  }
+}
+
+// WebGPU can also fail DURING inference (e.g. an op its shader backend doesn't
+// support — like the old "e.subarray is not a function"), even when the pipeline
+// loaded fine. In that case drop every cached pipeline, switch to "wasm", and
+// retry once so the user still gets their result instead of a dead-end error.
+async function runWithFallback(statusEl, fn) {
+  try {
+    return await fn();
+  } catch (err) {
+    if (activeDevice === "webgpu") {
+      console.warn("[in-browser-ai] WebGPU runtime failure — retrying on CPU (WASM):", err);
+      setStatus(statusEl, "WebGPU hiccup — retrying on CPU (WASM). ⚠", "loading");
+      activeDevice = "wasm";
+      // Invalidate cached pipelines so they reload for the new device.
+      transcriber = null; transcriberId = null;
+      summarizer = null; summarizerId = null;
+      translator = null; translatorId = null;
+      return await fn();
     }
     throw err;
   }
@@ -288,7 +337,6 @@ async function decodeAudio(blob) {
 }
 
 async function transcribeBuffer(buffer) {
-  const model = await getTranscriber();
   const withTimestamps = els.timestampsToggle.checked;
   const cfg = MODELS.speech[els.speechModelSelect.value];
   const opts = {
@@ -299,7 +347,13 @@ async function transcribeBuffer(buffer) {
   // Only English-only models force the language; multilingual models
   // auto-detect the spoken language from the audio.
   if (cfg.enOnly) opts.language = "english";
-  const out = await model(buffer, opts);
+  // The model is resolved inside the callback so that a WebGPU runtime failure
+  // is caught, the cached pipeline is dropped, and it is reloaded on CPU
+  // before we retry.
+  const out = await runWithFallback(els.speechStatus, async () => {
+    const transcriber = await getTranscriber();
+    return transcriber(buffer, opts);
+  });
   return formatTranscript(out, withTimestamps);
 }
 
@@ -445,20 +499,23 @@ els.summarizeBtn.addEventListener("click", async () => {
   const inlineBox = $("#summaryProgressInline");
   const inlineFill = $("#summaryProgressInlineFill");
   try {
-    const model = await getSummarizer();
     setStatus(els.summaryStatus, "Generating summary…", "loading");
     showProgress(inlineBox, inlineFill, null, 0, "");
-    let lastPct = 0;
-    const result = await model(text, {
-      max_length: Number(els.maxLen.value),
-      min_length: Math.min(Number(els.maxLen.value), 30),
-      do_sample: false,
-      progress_callback: (data) => {
-        if (typeof data.progress === "number") {
-          lastPct = Math.max(lastPct, data.progress);
-          showProgress(inlineBox, inlineFill, null, lastPct, "");
-        }
-      },
+    const result = await runWithFallback(els.summaryStatus, async () => {
+      const model = await getSummarizer();
+      let lastPct = 0;
+      const res = await model(text, {
+        max_length: Number(els.maxLen.value),
+        min_length: Math.min(Number(els.maxLen.value), 30),
+        do_sample: false,
+        progress_callback: (data) => {
+          if (typeof data.progress === "number") {
+            lastPct = Math.max(lastPct, data.progress);
+            showProgress(inlineBox, inlineFill, null, lastPct, "");
+          }
+        },
+      });
+      return res;
     });
     const summary = result?.[0]?.summary_text ?? String(result);
     els.summaryOut.value = summary.trim();
@@ -499,6 +556,7 @@ $("#copyTranslate").addEventListener("click", () => els.translateOut.value && co
 els.webgpuToggle.checked = device === "webgpu";
 els.webgpuToggle.addEventListener("change", () => {
   device = els.webgpuToggle.checked ? "webgpu" : "wasm";
+  activeDevice = device; // the user's choice wins again after any CPU fallback
   localStorage.setItem(DEVICE_KEY, device);
   // Invalidate cached pipelines so they reload on the new device.
   transcriber = null; transcriberId = null;
@@ -580,21 +638,23 @@ els.translateBtn.addEventListener("click", async () => {
   }
   els.translateBtn.disabled = true;
   try {
-    const model = await getTranslator();
     const [s, t] = translationKey().split("-");
     setStatus(els.translateStatus, "Translating on-device…", "loading");
     showProgress(els.translateProgress, els.translateProgressFill, els.translateProgressText, 0, "…");
-    let lastPct = 0;
-    const result = await model(text, {
-      src_lang: s,
-      tgt_lang: t,
-      do_sample: false,
-      progress_callback: (data) => {
-        if (typeof data.progress === "number") {
-          lastPct = Math.max(lastPct, data.progress);
-          showProgress(els.translateProgress, els.translateProgressFill, els.translateProgressText, lastPct, "");
-        }
-      },
+    const result = await runWithFallback(els.translateStatus, async () => {
+      const model = await getTranslator();
+      let lastPct = 0;
+      return model(text, {
+        src_lang: s,
+        tgt_lang: t,
+        do_sample: false,
+        progress_callback: (data) => {
+          if (typeof data.progress === "number") {
+            lastPct = Math.max(lastPct, data.progress);
+            showProgress(els.translateProgress, els.translateProgressFill, els.translateProgressText, lastPct, "");
+          }
+        },
+      });
     });
     const translation = result?.[0]?.translation_text ?? String(result);
     els.translateOut.value = translation.trim();
