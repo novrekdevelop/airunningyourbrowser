@@ -335,13 +335,52 @@ els.speechModelSelect.addEventListener("change", () => {
   );
 });
 
+// Whisper models consume monaural PCM at 16 kHz. Transformers.js v4 expects raw
+// audio passed to the pipeline to be a Float32Array at the model's sample rate
+// (the internal chunking path calls `.subarray()` on each segment, which a raw
+// Float32Array supports but a decoded AudioBuffer object does not — that's what
+// caused "b.subarray is not a function").
+const WHISPER_SAMPLE_RATE = 16000;
+
+// Convert a decoded AudioBuffer to a monaural Float32Array resampled to
+// `targetRate`, mixing all channels together for the mono sum.
+function audioBufferToMonoFloat32(audioBuffer, targetRate) {
+  const channels = audioBuffer.numberOfChannels || 1;
+  const frames = Math.floor(audioBuffer.length);
+
+  // 1) Mix channels → mono (average across channels) at the native rate.
+  const mono = new Float32Array(frames);
+  for (let c = 0; c < channels; c++) {
+    const data = audioBuffer.getChannelData(c);
+    const gain = channels === 1 ? 1 : 1 / channels;
+    for (let i = 0; i < frames; i++) mono[i] += data[i] * gain;
+  }
+
+  // 2) Resample linearly to the target rate (no-op if they already match).
+  const srcRate = audioBuffer.sampleRate || targetRate;
+  if (srcRate === targetRate) return mono;
+
+  const outLen = Math.max(1, Math.round((mono.length * targetRate) / srcRate));
+  const out = new Float32Array(outLen);
+  const ratio = srcRate / targetRate;
+  for (let i = 0; i < outLen; i++) {
+    const pos = i * ratio;
+    const i0 = Math.floor(pos);
+    const i1 = Math.min(i0 + 1, mono.length - 1);
+    const frac = pos - i0;
+    out[i] = mono[i0] * (1 - frac) + mono[i1] * frac;
+  }
+  return out;
+}
+
 async function decodeAudio(blob) {
   const arrayBuffer = await blob.arrayBuffer();
   const Ctx = window.AudioContext || window.webkitAudioContext;
   if (!Ctx) throw new Error("AudioContext is not supported in this browser.");
   const ctx = new Ctx();
   try {
-    return await ctx.decodeAudioData(arrayBuffer);
+    const decoded = await ctx.decodeAudioData(arrayBuffer);
+    return audioBufferToMonoFloat32(decoded, WHISPER_SAMPLE_RATE);
   } finally {
     if (ctx.state !== "closed") ctx.close();
   }
