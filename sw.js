@@ -6,10 +6,12 @@
  * Face CDN at runtime and cached separately by the browser itself,
  * so we deliberately do NOT try to pre-cache those multi-MB files.
  *
- * Strategy: cache-first for the app shell (network-first fallback),
- * stale-while-revalidate for the CDN library so updates flow in.
+ * Strategy: network-first for the app shell (so code fixes actually reach the
+ * browser) with a cache fallback for offline use. The heavy ONNX models are
+ * fetched from the Hugging Face CDN at runtime and cached separately by the
+ * browser itself, so upstream requests from other origins are left alone.
  */
-const CACHE = "in-browser-ai-v1";
+const CACHE = "in-browser-ai-v2";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -48,17 +50,18 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // App shell: cache-first with network fallback.
+  // App shell: network-first (fresh code when online) with cache fallback for
+  // offline use. Cache-first used to keep serving an old app.js forever, which
+  // is exactly how stale "cpu" device bugs lingered after an update.
   event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached;
-      return fetch(request).then((response) => {
+    fetch(request)
+      .then((response) => {
         if (response && response.ok) {
           const copy = response.clone();
           caches.open(CACHE).then((cache) => cache.put(request, copy));
         }
         return response;
-      });
-    })
+      })
+      .catch(() => caches.match(request))
   );
 });
