@@ -4,16 +4,39 @@
 //  using Transformers.js (which wraps ONNX Runtime Web). Models are fetched
 //  from the Hugging Face Hub once, cached by the browser, then run offline.
 // ============================================================================
-import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1";
+import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0";
 
 // Always load models from the Hub (never from a local ./models directory).
 env.allowLocalModels = false;
 
 // ---------------------------------------------------------------------------
+// Surface silent failures.
+// Transformers.js / ONNX Runtime often log async errors to the console without
+// throwing into our try/catch, leaving the UI stuck on "Downloading…". These
+// handlers turn such errors into a visible status line + console details.
+// ---------------------------------------------------------------------------
+function onUncaughtIssue(kind, err) {
+  const detail = (err && (err.message || err.reason)) || String(err);
+  console.error(`[in-browser-ai] ${kind}:`, err);
+  // Only override a status that is still mid-loading (avoid stomping "ready/error").
+  try {
+    if (els.speechStatus.className.includes("loading")) {
+      setStatus(
+        els.speechStatus,
+        `Load failed: ${detail} — open the browser console (F12) for details.`,
+        "error"
+      );
+    }
+  } catch { /* els/setStatus may not be defined yet at module parse time */ }
+}
+window.addEventListener("error", (e) => onUncaughtIssue("uncaught error", e.error || e.message));
+window.addEventListener("unhandledrejection", (e) => onUncaughtIssue("unhandled rejection", e.reason));
+
+// ---------------------------------------------------------------------------
 // Device preference: "wasm" (default, CPU via WebAssembly) or "webgpu"
-// (experimental, faster). Transformers.js v3+ only accepts "wasm" / "webgpu"
-// on the web — "cpu" is no longer valid there. Persisted so the choice
-// survives reloads (any stale "cpu" value is normalized to "wasm").
+// (experimental, faster). Transformers.js accepts "wasm" / "webgpu" on the web
+// ("cpu" is only valid on Node). Persisted so the choice survives reloads
+// (any stale "cpu" value is normalized to "wasm").
 // ---------------------------------------------------------------------------
 const DEVICE_KEY = "in-browser-ai.device";
 let device = localStorage.getItem(DEVICE_KEY) === "webgpu" ? "webgpu" : "wasm";
@@ -21,8 +44,10 @@ let device = localStorage.getItem(DEVICE_KEY) === "webgpu" ? "webgpu" : "wasm";
 function getPipelineOptions(task = null) {
   // Shared extra options handed to every pipeline.
   const opts = { device };
-  opts.quantized = true;
-  if (task === "automatic-speech-recognition") opts.dtype = "q8";
+  // q8 (8-bit quantized) keeps models small; it resolves to the "*_quantized.onnx"
+  // files and runs on both wasm (CPU) and webgpu. This is the v4 way to set it
+  // (the v3 "quantized: true" flag is no longer an option in Transformers.js v4).
+  opts.dtype = "q8";
   return opts;
 }
 
