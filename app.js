@@ -10,11 +10,13 @@ import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transfo
 env.allowLocalModels = false;
 
 // ---------------------------------------------------------------------------
-// Device preference: "cpu" (default) or "webgpu" (experimental, faster).
-// Persisted so the choice survives reloads.
+// Device preference: "wasm" (default, CPU via WebAssembly) or "webgpu"
+// (experimental, faster). Transformers.js v3+ only accepts "wasm" / "webgpu"
+// on the web — "cpu" is no longer valid there. Persisted so the choice
+// survives reloads (any stale "cpu" value is normalized to "wasm").
 // ---------------------------------------------------------------------------
 const DEVICE_KEY = "in-browser-ai.device";
-let device = localStorage.getItem(DEVICE_KEY) === "webgpu" ? "webgpu" : "cpu";
+let device = localStorage.getItem(DEVICE_KEY) === "webgpu" ? "webgpu" : "wasm";
 
 function getPipelineOptions(task = null) {
   // Shared extra options handed to every pipeline.
@@ -24,15 +26,15 @@ function getPipelineOptions(task = null) {
   return opts;
 }
 
-// Loads a pipeline with a transparent WebGPU → CPU fallback so the
-// experimental "WebGPU" toggle can never brick a model for a user.
+// Loads a pipeline with a transparent WebGPU → WebAssembly (CPU) fallback so
+// the experimental "WebGPU" toggle can never brick a model for a user.
 async function loadPipeline(task, modelId, opts, statusEl) {
   try {
     return await pipeline(task, modelId, opts);
   } catch (err) {
     if (opts.device === "webgpu") {
-      console.warn("[in-browser-ai] WebGPU init failed — falling back to CPU:", err);
-      opts.device = "cpu";
+      console.warn("[in-browser-ai] WebGPU init failed — falling back to WASM:", err);
+      opts.device = "wasm";
       if (statusEl) setStatus(statusEl, "WebGPU unavailable for this model — running on CPU instead. ⚠", "loading");
       return await pipeline(task, modelId, opts);
     }
@@ -471,7 +473,7 @@ $("#copyTranslate").addEventListener("click", () => els.translateOut.value && co
 // ---------------------------------------------------------------------------
 els.webgpuToggle.checked = device === "webgpu";
 els.webgpuToggle.addEventListener("change", () => {
-  device = els.webgpuToggle.checked ? "webgpu" : "cpu";
+  device = els.webgpuToggle.checked ? "webgpu" : "wasm";
   localStorage.setItem(DEVICE_KEY, device);
   // Invalidate cached pipelines so they reload on the new device.
   transcriber = null; transcriberId = null;
